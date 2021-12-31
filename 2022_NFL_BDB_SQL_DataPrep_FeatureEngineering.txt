@@ -1,0 +1,1180 @@
+
+#############################################
+# Step 1
+#############################################
+
+/*
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns AS 
+
+SELECT  
+    A.*,
+    quarter,
+    gameClock,
+    preSnapHomeScore,
+    preSnapVisitorScore,
+    returnerID
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_2018` A
+INNER JOIN (SELECT * FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Plays` WHERE SpecialTeamsPlayType = 'Punt' and specialTeamsResult = 'Return') B
+  ON A.gameID = B.gameID AND A.playID = B.playID
+
+
+UNION ALL
+
+SELECT
+    C.*,
+    quarter,
+    gameClock,
+    preSnapHomeScore,
+    preSnapVisitorScore,
+    returnerID
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_2019` C
+INNER JOIN (SELECT * FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Plays` WHERE SpecialTeamsPlayType = 'Punt' and specialTeamsResult = 'Return') D
+  ON C.gameID = D.gameID AND C.playID = D.playID
+
+UNION ALL
+
+SELECT
+    E.*,
+    quarter,
+    gameClock,
+    preSnapHomeScore,
+    preSnapVisitorScore,
+    returnerID
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_2020` E
+INNER JOIN (SELECT * FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Plays` WHERE SpecialTeamsPlayType = 'Punt' and specialTeamsResult = 'Return') F
+  ON E.gameID = F.gameID AND E.playID = F.playID
+
+;
+
+
+*/
+
+
+
+
+
+
+
+
+#############################################
+# Step 2
+#############################################
+
+# Added one frame past end event to be able to later get x location for frame+1
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_StartingEnding_Frames_V2 AS
+
+SELECT
+    C.gameID,
+    C.playID,
+    D.snap_frame,
+    D.snap_event,
+    C.last_frame,
+    C.last_frame_event,
+    CASE WHEN C.last_frame IS NOT NULL THEN C.last_frame+1 END AS last_frame_plus_one 
+FROM
+(
+SELECT
+    A.gameID,
+    A.playID,
+    A.last_frame,
+    B.event as last_frame_event
+FROM
+(
+SELECT  
+    gameID,
+    playID,
+    MAX(frameID) as last_frame
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns` 
+WHERE nflID = returnerID AND event != 'None'
+GROUP BY gameID, playID
+ORDER BY gameID, playID
+) A
+
+LEFT JOIN (SELECT gameID, playID, frameID, event FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns` ) B
+  ON A.gameID = B.gameID AND A.playID = B.playID AND A.last_frame = B.frameID
+
+GROUP BY A.gameID, A.playID, A.last_frame, B.event
+ORDER BY A.gameID, A.playID, A.last_frame
+) C
+
+LEFT JOIN 
+(
+SELECT  
+    gameID,
+    playID,
+    frameID as snap_frame,
+    event as snap_event
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns` 
+WHERE event = 'ball_snap'
+GROUP BY gameID, playID, frameID, event
+ORDER BY gameID, playID, frameID
+) D
+ON C.gameID = D.gameID AND C.playID = D.playID
+
+ORDER BY gameID, playID
+;
+
+
+*/
+
+
+
+
+
+
+
+
+#############################################
+# Step 3
+#############################################
+
+/*
+
+# Added last_frame_plus_one on 11.21.21
+
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered AS 
+
+SELECT  
+    A.gameID,
+    A.playID,
+    A.frameID,
+    B.snap_frame,
+    B.last_frame,
+    B.last_frame_plus_one,
+    
+    A.time, 
+    A.x, 
+    A.y, 
+    A.s, 
+    A.a, 
+    A.dis, 
+    A.o, 
+    A.dir, 
+    A.event, 
+    A.nflID,
+    a.displayName,
+    A.jerseyNumber,
+    A.position, 
+    A.team, 
+    A.playDirection,
+    A.quarter, 
+    A.gameClock,
+    A.preSnapHomeScore,
+    A.preSnapVisitorScore,
+    A.returnerID
+    
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns` A
+
+LEFT JOIN (SELECT * FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_StartingEnding_Frames_V2) B
+ON A.gameID = B.gameID AND A.playID = B.playID 
+
+WHERE A.frameID >= B.snap_frame AND A.frameID <= last_frame_plus_one
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26
+
+ORDER BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26
+;
+*/
+
+
+
+
+#############################################
+# Step 4
+#############################################
+
+
+/*
+# This takes the distance traveled from prior time point to the previous frame. Thus, capturing distance given the situation
+# Edit on 12.13.21 to add next 'x' value
+
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added AS
+
+SELECT  
+    *,
+    LEAD(dis) OVER(PARTITION BY playID,gameID,nflID ORDER BY frameID) as result_of_play_distance,
+    LEAD(x)   OVER(PARTITION BY playID,gameID,nflID ORDER BY frameID) as result_of_play_x
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered` 
+ORDER BY 1,2,3,16
+;
+
+
+*/
+
+
+
+
+
+
+
+
+
+#############################################
+# Step 5
+#############################################
+
+/*
+
+
+#What this script does is assign a "number" for each player on kicking and receiving team using the Y axis, which shows as "top to bottom" 
+
+#The idea is to assign player name variables based on positioning at time of snap
+#- Example: Kicking_1 is the top most player on the kicking team
+
+## NOTE: Does not account for returner
+
+
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Position_Name_Variables AS
+
+SELECT
+    *,
+    CASE WHEN k_o_r IS NOT NULL THEN CONCAT(k_o_r, "_", CAST(number AS STRING)) END AS position
+FROM
+(
+SELECT
+  ROW_NUMBER () OVER(PARTITION BY gameId, playID, k_o_r  ORDER BY k_o_r, y) as number,
+  *
+FROM
+(
+SELECT
+    gameID,
+    playID,
+    nflID,
+    displayName,
+    home_or_away_kicking,
+    y,
+    CASE WHEN team = home_or_away_kicking THEN 'kicking' ELSE 'receiving' END AS k_o_r
+FROM
+(
+SELECT  
+    A.*,
+    CASE 
+      WHEN homeTeamAbbr = possessionTeam THEN 'home'
+      WHEN visitorTeamAbbr = possessionTeam THEN 'away'
+      WHEN homeTeamAbbr != possessionTeam THEN 'away'
+      WHEN visitorTeamAbbr != possessionTeam THEN 'home'
+    END as home_or_away_kicking
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added` A
+LEFT JOIN (SELECT gameID, homeTeamAbbr, visitorTeamAbbr FROM ss-projects-306119.NFL_BigDataBowl_Fall_2021.Games) B
+ON A.gameID = B.gameID
+LEFT JOIN (SELECT gameID, playID, possessionTeam FROM ss-projects-306119.NFL_BigDataBowl_Fall_2021.Plays) C
+ON A.gameID = C.gameID AND A.playID = C.playID
+WHERE
+    displayName != 'football'
+    AND frameId = snap_frame
+ORDER BY frameID, nflID,y
+)
+WHERE nflID != returnerID
+)
+ORDER BY k_o_r,y
+)
+ORDER BY gameId, playID, k_o_r, number
+;
+
+*/
+
+
+
+
+/*
+# This assigns the position designation from Tracking_All_Punt_Returns_Position_Name_Variables and applies to main data set
+
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update AS
+
+SELECT  
+    A.*,
+    CASE 
+      WHEN B.position IS NULL AND displayName != 'football' THEN 'returner' 
+      WHEN B.position IS NULL AND displayName = 'football' THEN 'football'
+      ELSE B.position 
+    END AS position_updated
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added` A
+LEFT JOIN (SELECT gameID, playID, nflID, position FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Position_Name_Variables) B
+ON A.gameID = B.gameID AND A.playID = B.playID AND A.nflID = B.nflID
+ORDER BY 1,2,3, position_updated
+;
+
+*/
+
+
+
+
+
+
+
+
+#############################################
+# Step 6
+#############################################
+
+/*
+
+# This has 21 self joins to attach each of 21 other players positions to same row as returner, on GameID, playID, and frameID
+
+
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Final_Attributes_Step_1 AS
+
+SELECT  
+    A.*, 
+    
+    # kicking_1 position
+    k_1.x                                     as kicking_1_x,
+    k_1.y                                     as kicking_1_y,
+    k_1.s                                     as kicking_1_s,
+    k_1.a                                     as kicking_1_a,
+    k_1.dis                                   as kicking_1_dis,
+    k_1.o                                     as kicking_1_o,
+    k_1.dir                                   as kicking_1_dir,
+    k_1.result_of_play_distance               as kicking_1_result_of_play_distance,
+    
+    # kicking_2 position
+    k_2.x                                     as kicking_2_x,
+    k_2.y                                     as kicking_2_y,
+    k_2.s                                     as kicking_2_s,
+    k_2.a                                     as kicking_2_a,
+    k_2.dis                                   as kicking_2_dis,
+    k_2.o                                     as kicking_2_o,
+    k_2.dir                                   as kicking_2_dir,
+    k_2.result_of_play_distance               as kicking_2_result_of_play_distance,
+    
+    # kicking_3 position
+    k_3.x                                     as kicking_3_x,
+    k_3.y                                     as kicking_3_y,
+    k_3.s                                     as kicking_3_s,
+    k_3.a                                     as kicking_3_a,
+    k_3.dis                                   as kicking_3_dis,
+    k_3.o                                     as kicking_3_o,
+    k_3.dir                                   as kicking_3_dir,
+    k_3.result_of_play_distance               as kicking_3_result_of_play_distance,
+    
+    # kicking_4 position
+    k_4.x                                     as kicking_4_x,
+    k_4.y                                     as kicking_4_y,
+    k_4.s                                     as kicking_4_s,
+    k_4.a                                     as kicking_4_a,
+    k_4.dis                                   as kicking_4_dis,
+    k_4.o                                     as kicking_4_o,
+    k_4.dir                                   as kicking_4_dir,
+    k_4.result_of_play_distance               as kicking_4_result_of_play_distance,
+
+    # kicking_5 position
+    k_5.x                                     as kicking_5_x,
+    k_5.y                                     as kicking_5_y,
+    k_5.s                                     as kicking_5_s,
+    k_5.a                                     as kicking_5_a,
+    k_5.dis                                   as kicking_5_dis,
+    k_5.o                                     as kicking_5_o,
+    k_5.dir                                   as kicking_5_dir,
+    k_5.result_of_play_distance               as kicking_5_result_of_play_distance,
+
+    # kicking_6 position
+    k_6.x                                     as kicking_6_x,
+    k_6.y                                     as kicking_6_y,
+    k_6.s                                     as kicking_6_s,
+    k_6.a                                     as kicking_6_a,
+    k_6.dis                                   as kicking_6_dis,
+    k_6.o                                     as kicking_6_o,
+    k_6.dir                                   as kicking_6_dir,
+    k_6.result_of_play_distance               as kicking_6_result_of_play_distance,
+
+    # kicking_7 position
+    k_7.x                                     as kicking_7_x,
+    k_7.y                                     as kicking_7_y,
+    k_7.s                                     as kicking_7_s,
+    k_7.a                                     as kicking_7_a,
+    k_7.dis                                   as kicking_7_dis,
+    k_7.o                                     as kicking_7_o,
+    k_7.dir                                   as kicking_7_dir,
+    k_7.result_of_play_distance               as kicking_7_result_of_play_distance,
+
+    # kicking_8 position
+    k_8.x                                     as kicking_8_x,
+    k_8.y                                     as kicking_8_y,
+    k_8.s                                     as kicking_8_s,
+    k_8.a                                     as kicking_8_a,
+    k_8.dis                                   as kicking_8_dis,
+    k_8.o                                     as kicking_8_o,
+    k_8.dir                                   as kicking_8_dir,
+    k_8.result_of_play_distance               as kicking_8_result_of_play_distance,
+
+    # kicking_9 position
+    k_9.x                                     as kicking_9_x,
+    k_9.y                                     as kicking_9_y,
+    k_9.s                                     as kicking_9_s,
+    k_9.a                                     as kicking_9_a,
+    k_9.dis                                   as kicking_9_dis,
+    k_9.o                                     as kicking_9_o,
+    k_9.dir                                   as kicking_9_dir,
+    k_9.result_of_play_distance               as kicking_9_result_of_play_distance,
+    
+    # kicking_10 position
+    k_10.x                                     as kicking_10_x,
+    k_10.y                                     as kicking_10_y,
+    k_10.s                                     as kicking_10_s,
+    k_10.a                                     as kicking_10_a,
+    k_10.dis                                   as kicking_10_dis,
+    k_10.o                                     as kicking_10_o,
+    k_10.dir                                   as kicking_10_dir,
+    k_10.result_of_play_distance               as kicking_10_result_of_play_distance,
+
+    # kicking_11 position
+    k_11.x                                     as kicking_11_x,
+    k_11.y                                     as kicking_11_y,
+    k_11.s                                     as kicking_11_s,
+    k_11.a                                     as kicking_11_a,
+    k_11.dis                                   as kicking_11_dis,
+    k_11.o                                     as kicking_11_o,
+    k_11.dir                                   as kicking_11_dir,
+    k_11.result_of_play_distance               as kicking_11_result_of_play_distance,
+
+    # receiving_1 position
+    r_1.x                                     as receiving_1_x,
+    r_1.y                                     as receiving_1_y,
+    r_1.s                                     as receiving_1_s,
+    r_1.a                                     as receiving_1_a,
+    r_1.dis                                   as receiving_1_dis,
+    r_1.o                                     as receiving_1_o,
+    r_1.dir                                   as receiving_1_dir,
+    r_1.result_of_play_distance               as receiving_1_result_of_play_distance,
+
+    # receiving_2 position
+    r_2.x                                     as receiving_2_x,
+    r_2.y                                     as receiving_2_y,
+    r_2.s                                     as receiving_2_s,
+    r_2.a                                     as receiving_2_a,
+    r_2.dis                                   as receiving_2_dis,
+    r_2.o                                     as receiving_2_o,
+    r_2.dir                                   as receiving_2_dir,
+    r_2.result_of_play_distance               as receiving_2_result_of_play_distance,
+    
+    # receiving_3 position
+    r_3.x                                     as receiving_3_x,
+    r_3.y                                     as receiving_3_y,
+    r_3.s                                     as receiving_3_s,
+    r_3.a                                     as receiving_3_a,
+    r_3.dis                                   as receiving_3_dis,
+    r_3.o                                     as receiving_3_o,
+    r_3.dir                                   as receiving_3_dir,
+    r_3.result_of_play_distance               as receiving_3_result_of_play_distance,
+    
+    # receiving_4 position
+    r_4.x                                     as receiving_4_x,
+    r_4.y                                     as receiving_4_y,
+    r_4.s                                     as receiving_4_s,
+    r_4.a                                     as receiving_4_a,
+    r_4.dis                                   as receiving_4_dis,
+    r_4.o                                     as receiving_4_o,
+    r_4.dir                                   as receiving_4_dir,
+    r_4.result_of_play_distance               as receiving_4_result_of_play_distance,
+    
+    # receiving_5 position
+    r_5.x                                     as receiving_5_x,
+    r_5.y                                     as receiving_5_y,
+    r_5.s                                     as receiving_5_s,
+    r_5.a                                     as receiving_5_a,
+    r_5.dis                                   as receiving_5_dis,
+    r_5.o                                     as receiving_5_o,
+    r_5.dir                                   as receiving_5_dir,
+    r_5.result_of_play_distance               as receiving_5_result_of_play_distance,
+    
+    # receiving_6 position
+    r_6.x                                     as receiving_6_x,
+    r_6.y                                     as receiving_6_y,
+    r_6.s                                     as receiving_6_s,
+    r_6.a                                     as receiving_6_a,
+    r_6.dis                                   as receiving_6_dis,
+    r_6.o                                     as receiving_6_o,
+    r_6.dir                                   as receiving_6_dir,
+    r_6.result_of_play_distance               as receiving_6_result_of_play_distance,
+
+    # receiving_7 position
+    r_7.x                                     as receiving_7_x,
+    r_7.y                                     as receiving_7_y,
+    r_7.s                                     as receiving_7_s,
+    r_7.a                                     as receiving_7_a,
+    r_7.dis                                   as receiving_7_dis,
+    r_7.o                                     as receiving_7_o,
+    r_7.dir                                   as receiving_7_dir,
+    r_7.result_of_play_distance               as receiving_7_result_of_play_distance,
+
+    # receiving_8 position
+    r_8.x                                     as receiving_8_x,
+    r_8.y                                     as receiving_8_y,
+    r_8.s                                     as receiving_8_s,
+    r_8.a                                     as receiving_8_a,
+    r_8.dis                                   as receiving_8_dis,
+    r_8.o                                     as receiving_8_o,
+    r_8.dir                                   as receiving_8_dir,
+    r_8.result_of_play_distance               as receiving_8_result_of_play_distance,
+
+    # receiving_9 position
+    r_9.x                                     as receiving_9_x,
+    r_9.y                                     as receiving_9_y,
+    r_9.s                                     as receiving_9_s,
+    r_9.a                                     as receiving_9_a,
+    r_9.dis                                   as receiving_9_dis,
+    r_9.o                                     as receiving_9_o,
+    r_9.dir                                   as receiving_9_dir,
+    r_9.result_of_play_distance               as receiving_9_result_of_play_distance,
+
+    # receiving_10 position
+    r_10.x                                     as receiving_10_x,
+    r_10.y                                     as receiving_10_y,
+    r_10.s                                     as receiving_10_s,
+    r_10.a                                     as receiving_10_a,
+    r_10.dis                                   as receiving_10_dis,
+    r_10.o                                     as receiving_10_o,
+    r_10.dir                                   as receiving_10_dir,
+    r_10.result_of_play_distance               as receiving_10_result_of_play_distance
+    
+    
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update` A
+
+# Join kicking_1 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_1') k_1
+ON A.gameID = k_1.gameID AND A.playID = k_1.playID AND A.frameID = k_1.frameID 
+
+# Join kicking_2 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_2') k_2
+ON A.gameID = k_2.gameID AND A.playID = k_2.playID AND A.frameID = k_2.frameID 
+
+# Join kicking_3 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_3') k_3
+ON A.gameID = k_3.gameID AND A.playID = k_3.playID AND A.frameID = k_3.frameID 
+
+# Join kicking_4 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_4') k_4
+ON A.gameID = k_4.gameID AND A.playID = k_4.playID AND A.frameID = k_4.frameID 
+
+# Join kicking_5 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_5') k_5
+ON A.gameID = k_5.gameID AND A.playID = k_5.playID AND A.frameID = k_5.frameID 
+
+# Join kicking_6 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_6') k_6
+ON A.gameID = k_6.gameID AND A.playID = k_6.playID AND A.frameID = k_6.frameID 
+
+# Join kicking_7 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_7') k_7
+ON A.gameID = k_7.gameID AND A.playID = k_7.playID AND A.frameID = k_7.frameID 
+
+# Join kicking_8 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_8') k_8
+ON A.gameID = k_8.gameID AND A.playID = k_8.playID AND A.frameID = k_8.frameID 
+
+# Join kicking_9 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_9') k_9
+ON A.gameID = k_9.gameID AND A.playID = k_9.playID AND A.frameID = k_9.frameID 
+
+# Join kicking_10 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_10') k_10
+ON A.gameID = k_10.gameID AND A.playID = k_10.playID AND A.frameID = k_10.frameID 
+
+# Join kicking_10 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'kicking_11') k_11
+ON A.gameID = k_11.gameID AND A.playID = k_11.playID AND A.frameID = k_11.frameID 
+
+
+######################################
+#### Now, the receiving team's players
+######################################
+
+
+# Join receiving_1 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'receiving_1') r_1
+ON A.gameID = r_1.gameID AND A.playID = r_1.playID AND A.frameID = r_1.frameID 
+
+# Join receiving_2 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'receiving_2') r_2
+ON A.gameID = r_2.gameID AND A.playID = r_2.playID AND A.frameID = r_2.frameID 
+
+# Join receiving_3 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'receiving_3') r_3
+ON A.gameID = r_3.gameID AND A.playID = r_3.playID AND A.frameID = r_3.frameID
+
+# Join receiving_4 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'receiving_4') r_4
+ON A.gameID = r_4.gameID AND A.playID = r_4.playID AND A.frameID = r_4.frameID 
+
+# Join receiving_5 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'receiving_5') r_5
+ON A.gameID = r_5.gameID AND A.playID = r_5.playID AND A.frameID = r_5.frameID 
+
+# Join receiving_6 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'receiving_6') r_6
+ON A.gameID = r_6.gameID AND A.playID = r_6.playID AND A.frameID = r_6.frameID 
+
+# Join receiving_7 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'receiving_7') r_7
+ON A.gameID = r_7.gameID AND A.playID = r_7.playID AND A.frameID = r_7.frameID 
+
+# Join receiving_8 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'receiving_8') r_8
+ON A.gameID = r_8.gameID AND A.playID = r_8.playID AND A.frameID = r_8.frameID 
+
+# Join receiving_9 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'receiving_9') r_9
+ON A.gameID = r_9.gameID AND A.playID = r_9.playID AND A.frameID = r_9.frameID 
+
+# Join receiving_10 tracking data
+LEFT JOIN (SELECT gameID, playID, frameID, x, y, s, a, dis, o, dir, result_of_play_distance, position_updated FROM NFL_BigDataBowl_Fall_2021.Tracking_All_Punt_Returns_Frames_Filtered_Next_Dis_Added_And_Position_Update WHERE position_updated= 'receiving_10') r_10
+ON A.gameID = r_10.gameID AND A.playID = r_10.playID AND A.frameID = r_10.frameID 
+
+
+WHERE
+    A.position_updated = 'returner'
+    AND A.frameID BETWEEN snap_frame AND last_frame
+ORDER BY 1,2,3
+;
+
+*/
+
+
+
+
+
+
+
+
+
+
+#############################################
+# Step 7
+#############################################
+
+/*
+The idea in this table is to add the following calculations as fields:
+- distance, in yards, of each player in relation to the returner
+- count, in buckets, the number of kicking team and returning team players within X yards of the returner
+- The spread (max - min) along X and Y axis for both kicking team and receiving team
+*/
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Final_Attributes_Step_2 AS
+
+SELECT
+  *,
+  
+  
+  ## Kicking Team Bucketts
+  
+  # Counting defenders <5 yards away from returner
+  (SUM(CASE WHEN kicking_1_distance < 5 THEN 1 ELSE 0 END) + 
+  SUM(CASE WHEN kicking_2_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_3_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_4_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_5_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_6_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_7_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_8_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_9_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_10_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_11_distance < 5 THEN 1 ELSE 0 END))                                               as kicking_bucket_1,
+  
+  # Counting defenders 5-10 yards away from returner
+  (SUM(CASE WHEN kicking_1_distance >= 5 AND kicking_1_distance <=10 THEN 1 ELSE 0 END) + 
+  SUM(CASE WHEN kicking_2_distance >= 5 AND kicking_2_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_3_distance >= 5 AND kicking_3_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_4_distance >= 5 AND kicking_4_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_5_distance >= 5 AND kicking_5_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_6_distance >= 5 AND kicking_6_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_7_distance >= 5 AND kicking_7_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_8_distance >= 5 AND kicking_8_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_9_distance >= 5 AND kicking_9_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_10_distance >= 5 AND kicking_10_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_11_distance >= 5 AND kicking_11_distance <=10 THEN 1 ELSE 0 END))                 as kicking_bucket_2,
+  
+  # Counting defenders 10-15 yards away from returner
+  (SUM(CASE WHEN kicking_1_distance >= 10 AND kicking_1_distance <=15 THEN 1 ELSE 0 END) + 
+  SUM(CASE WHEN kicking_2_distance >= 10 AND kicking_2_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_3_distance >= 10 AND kicking_3_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_4_distance >= 10 AND kicking_4_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_5_distance >= 10 AND kicking_5_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_6_distance >= 10 AND kicking_6_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_7_distance >= 10 AND kicking_7_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_8_distance >= 10 AND kicking_8_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_9_distance >= 10 AND kicking_9_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_10_distance >= 10 AND kicking_10_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_11_distance >= 10 AND kicking_11_distance <=15 THEN 1 ELSE 0 END))                as kicking_bucket_3,
+
+  
+  # Counting defenders 15+ yards away from returner
+  (SUM(CASE WHEN kicking_1_distance > 15 THEN 1 ELSE 0 END) + 
+  SUM(CASE WHEN kicking_2_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_3_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_4_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_5_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_6_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_7_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_8_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_9_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_10_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN kicking_11_distance > 15 THEN 1 ELSE 0 END))                                              as kicking_bucket_4,
+  
+  
+  ## Receiving team buckets
+  
+  # Counting receiving team members < 5 yards away from returner
+  (SUM(CASE WHEN receiving_1_distance < 5 THEN 1 ELSE 0 END) + 
+  SUM(CASE WHEN receiving_2_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_3_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_4_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_5_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_6_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_7_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_8_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_9_distance < 5 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_10_distance < 5 THEN 1 ELSE 0 END))                                                as receiving_bucket_1,
+  
+  # Counting receiving team members 5-10 yards away from returner
+  (SUM(CASE WHEN receiving_1_distance >= 5 AND receiving_1_distance <=10 THEN 1 ELSE 0 END) + 
+  SUM(CASE WHEN receiving_2_distance >= 5 AND receiving_2_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_3_distance >= 5 AND receiving_3_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_4_distance >= 5 AND receiving_4_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_5_distance >= 5 AND receiving_5_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_6_distance >= 5 AND receiving_6_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_7_distance >= 5 AND receiving_7_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_8_distance >= 5 AND receiving_8_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_9_distance >= 5 AND receiving_9_distance <=10 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_10_distance >= 5 AND receiving_10_distance <=10 THEN 1 ELSE 0 END))                as receiving_bucket_2,
+  
+  # Counting receiving team members 10-15 yards away from returner
+  (SUM(CASE WHEN receiving_1_distance >= 10 AND receiving_1_distance <=15 THEN 1 ELSE 0 END) + 
+  SUM(CASE WHEN receiving_2_distance >= 10 AND receiving_2_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_3_distance >= 10 AND receiving_3_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_4_distance >= 10 AND receiving_4_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_5_distance >= 10 AND receiving_5_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_6_distance >= 10 AND receiving_6_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_7_distance >= 10 AND receiving_7_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_8_distance >= 10 AND receiving_8_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_9_distance >= 10 AND receiving_9_distance <=15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_10_distance >= 10 AND receiving_10_distance <=15 THEN 1 ELSE 0 END))               as receiving_bucket_3,
+
+  
+  # Counting receiving team members 15+ yards away from returner
+  (SUM(CASE WHEN receiving_1_distance > 15 THEN 1 ELSE 0 END) + 
+  SUM(CASE WHEN receiving_2_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_3_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_4_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_5_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_6_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_7_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_8_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_9_distance > 15 THEN 1 ELSE 0 END) +
+  SUM(CASE WHEN receiving_10_distance > 15 THEN 1 ELSE 0 END))                                                as receiving_bucket_4,
+  
+  
+  # X and Y Spread of Kicking Team
+  ROUND(ABS(GREATEST(kicking_1_x, kicking_2_x, kicking_3_x, kicking_4_x, kicking_5_x, kicking_6_x,
+           kicking_7_x, kicking_8_x, kicking_9_x, kicking_10_x, kicking_11_x)       
+   -
+  LEAST(kicking_1_x, kicking_2_x, kicking_3_x, kicking_4_x, kicking_5_x, kicking_6_x,
+           kicking_7_x, kicking_8_x, kicking_9_x, kicking_10_x, kicking_11_x)),2)                             as kicking_spread_x,
+           
+  ROUND(ABS(GREATEST(kicking_1_y, kicking_2_y, kicking_3_y, kicking_4_y, kicking_5_y, kicking_6_y,
+           kicking_7_y, kicking_8_y, kicking_9_y, kicking_10_y, kicking_11_y)       
+   -
+  LEAST(kicking_1_y, kicking_2_y, kicking_3_y, kicking_4_y, kicking_5_y, kicking_6_y,
+           kicking_7_y, kicking_8_y, kicking_9_y, kicking_10_y, kicking_11_y)),2)                             as kicking_spread_y,  
+
+
+  # X and Y Spread of Receiving Team
+  ROUND(ABS(GREATEST(receiving_1_x, receiving_2_x, receiving_3_x, receiving_4_x, receiving_5_x, 
+          receiving_6_x, receiving_7_x, receiving_8_x, receiving_9_x, receiving_10_x)       
+   -
+  LEAST(receiving_1_x, receiving_2_x, receiving_3_x, receiving_4_x, receiving_5_x, 
+          receiving_6_x, receiving_7_x, receiving_8_x, receiving_9_x, receiving_10_x)),2)                     as receiving_spread_x,
+           
+  ROUND(ABS(GREATEST(receiving_1_y, receiving_2_y, receiving_3_y, receiving_4_y, receiving_5_y, 
+          receiving_6_y, receiving_7_y, receiving_8_y, receiving_9_y, receiving_10_y)       
+   -
+  LEAST(receiving_1_y, receiving_2_y, receiving_3_y, receiving_4_y, receiving_5_y, 
+          receiving_6_y, receiving_7_y, receiving_8_y, receiving_9_y, receiving_10_y)),2)                     as receiving_spread_y
+  
+
+FROM
+(
+SELECT  
+    gameID,
+    playID,
+    frameID,
+    nflID,
+    displayName,
+    event,
+    x,
+    y,
+    s,
+    a,
+    o,
+    dir,
+    result_of_play_distance                                                             as dis_updated,
+    result_of_play_x                                                                    as x_updated,
+    #14
+    
+    # Game situation variables
+    playDirection,
+    CASE
+      WHEN quarter = 1 THEN 'One'
+      WHEN quarter = 2 THEN 'Two'
+      WHEN quarter = 3 THEN 'Three'
+      WHEN quarter = 4 THEN 'Four'
+      WHEN quarter = 5 THEN 'Five'
+    END                                                                                 as quarter,   
+    
+    CASE
+      WHEN (preSnapHomeScore - preSnapVisitorScore) > 0 
+            AND team = 'home' THEN 'receiving_winning'
+      WHEN (preSnapHomeScore - preSnapVisitorScore) < 0
+            AND team = 'home' THEN 'receiving_losing'
+      WHEN (preSnapHomeScore - preSnapVisitorScore) > 0
+            AND team = 'away' THEN 'receiving_losing'
+      WHEN (preSnapHomeScore - preSnapVisitorScore) < 0
+            AND team = 'away' THEN 'receiving_winning' 
+      ELSE 'tie'
+    END                                                                                 as advtanage,
+    
+    team,
+    ABS(preSnapHomeScore - preSnapVisitorScore)                                         as score_differential,
+    
+    CASE 
+      WHEN gameClock BETWEEN TIME(00,00,00) AND TIME(03,00,00) THEN '0-3 Minutes'
+      WHEN gameClock BETWEEN TIME(03,00,01) AND TIME (06,00,00) THEN '3-6 Minutes'
+      WHEN gameClock BETWEEN TIME(06,00,01) AND TIME (09,00,00) THEN '6-9 Minutes'
+      WHEN gameClock BETWEEN TIME(09,00,01) AND TIME (12,00,00) THEN '9-12 Minutes'
+      WHEN gameClock BETWEEN TIME(12,00,01) AND TIME (15,00,00) THEN '12-15 Minutes'
+      ELSE 'Other'
+    END                                                                                 as time_situation,
+    #5
+      
+    # Getting distance, in yards, from players on kicking team to the punt receiver
+    ROUND(SQRT((POWER((kicking_1_x - x),2)) + (POWER((kicking_1_y - y),2))),2)          as kicking_1_distance,
+    ROUND(SQRT((POWER((kicking_2_x - x),2)) + (POWER((kicking_2_y - y),2))),2)          as kicking_2_distance,
+    ROUND(SQRT((POWER((kicking_3_x - x),2)) + (POWER((kicking_3_y - y),2))),2)          as kicking_3_distance,
+    ROUND(SQRT((POWER((kicking_4_x - x),2)) + (POWER((kicking_4_y - y),2))),2)          as kicking_4_distance,
+    ROUND(SQRT((POWER((kicking_5_x - x),2)) + (POWER((kicking_5_y - y),2))),2)          as kicking_5_distance,
+    ROUND(SQRT((POWER((kicking_6_x - x),2)) + (POWER((kicking_6_y - y),2))),2)          as kicking_6_distance,
+    ROUND(SQRT((POWER((kicking_7_x - x),2)) + (POWER((kicking_7_y - y),2))),2)          as kicking_7_distance,
+    ROUND(SQRT((POWER((kicking_8_x - x),2)) + (POWER((kicking_8_y - y),2))),2)          as kicking_8_distance,
+    ROUND(SQRT((POWER((kicking_9_x - x),2)) + (POWER((kicking_9_y - y),2))),2)          as kicking_9_distance,
+    ROUND(SQRT((POWER((kicking_10_x - x),2)) + (POWER((kicking_10_y - y),2))),2)        as kicking_10_distance,
+    ROUND(SQRT((POWER((kicking_11_x - x),2)) + (POWER((kicking_11_y - y),2))),2)        as kicking_11_distance,
+    
+    # Getting distance, in yards, from players on receiving team to the punt receiver
+    ROUND(SQRT((POWER((receiving_1_x - x),2)) + (POWER((receiving_1_y - y),2))),2)      as receiving_1_distance,
+    ROUND(SQRT((POWER((receiving_2_x - x),2)) + (POWER((receiving_2_y - y),2))),2)      as receiving_2_distance,
+    ROUND(SQRT((POWER((receiving_3_x - x),2)) + (POWER((receiving_3_y - y),2))),2)      as receiving_3_distance,
+    ROUND(SQRT((POWER((receiving_4_x - x),2)) + (POWER((receiving_4_y - y),2))),2)      as receiving_4_distance,
+    ROUND(SQRT((POWER((receiving_5_x - x),2)) + (POWER((receiving_5_y - y),2))),2)      as receiving_5_distance,
+    ROUND(SQRT((POWER((receiving_6_x - x),2)) + (POWER((receiving_6_y - y),2))),2)      as receiving_6_distance,
+    ROUND(SQRT((POWER((receiving_7_x - x),2)) + (POWER((receiving_7_y - y),2))),2)      as receiving_7_distance,
+    ROUND(SQRT((POWER((receiving_8_x - x),2)) + (POWER((receiving_8_y - y),2))),2)      as receiving_8_distance,
+    ROUND(SQRT((POWER((receiving_9_x - x),2)) + (POWER((receiving_9_y - y),2))),2)      as receiving_9_distance,
+    ROUND(SQRT((POWER((receiving_10_x - x),2)) + (POWER((receiving_10_y - y),2))),2)    as receiving_10_distance,
+    #21
+
+
+    # X Position of players on kicking and receiving teams
+    kicking_1_x,
+    kicking_2_x,
+    kicking_3_x,
+    kicking_4_x,
+    kicking_5_x,
+    kicking_6_x,
+    kicking_7_x,
+    kicking_8_x,
+    kicking_9_x,
+    kicking_10_x,
+    kicking_11_x,
+    
+    receiving_1_x,
+    receiving_2_x,
+    receiving_3_x,
+    receiving_4_x,
+    receiving_5_x,
+    receiving_6_x,
+    receiving_7_x,
+    receiving_8_x,
+    receiving_9_x,
+    receiving_10_x,
+    #21
+    
+    # Y Position of players on kicking and receiving teams
+    kicking_1_y,
+    kicking_2_y,
+    kicking_3_y,
+    kicking_4_y,
+    kicking_5_y,
+    kicking_6_y,
+    kicking_7_y,
+    kicking_8_y,
+    kicking_9_y,
+    kicking_10_y,
+    kicking_11_y,
+    
+    receiving_1_y,
+    receiving_2_y,
+    receiving_3_y,
+    receiving_4_y,
+    receiving_5_y,
+    receiving_6_y,
+    receiving_7_y,
+    receiving_8_y,
+    receiving_9_y,
+    receiving_10_y,
+    #21
+
+    # Speed of players on kicking and receiving teams
+    kicking_1_s,
+    kicking_2_s,
+    kicking_3_s,
+    kicking_4_s,
+    kicking_5_s,
+    kicking_6_s,
+    kicking_7_s,
+    kicking_8_s,
+    kicking_9_s,
+    kicking_10_s,
+    kicking_11_s,
+    
+    receiving_1_s,
+    receiving_2_s,
+    receiving_3_s,
+    receiving_4_s,
+    receiving_5_s,
+    receiving_6_s,
+    receiving_7_s,
+    receiving_8_s,
+    receiving_9_s,
+    receiving_10_s,
+    #21
+  
+    # Acceleration of players on kicking and receiving teams
+    kicking_1_a,
+    kicking_2_a,
+    kicking_3_a,
+    kicking_4_a,
+    kicking_5_a,
+    kicking_6_a,
+    kicking_7_a,
+    kicking_8_a,
+    kicking_9_a,
+    kicking_10_a,
+    kicking_11_a,
+    
+    receiving_1_a,
+    receiving_2_a,
+    receiving_3_a,
+    receiving_4_a,
+    receiving_5_a,
+    receiving_6_a,
+    receiving_7_a,
+    receiving_8_a,
+    receiving_9_a,
+    receiving_10_a,
+    #21    
+    
+    # Orientation of players on kicking and receiving teams
+    kicking_1_o,
+    kicking_2_o,
+    kicking_3_o,
+    kicking_4_o,
+    kicking_5_o,
+    kicking_6_o,
+    kicking_7_o,
+    kicking_8_o,
+    kicking_9_o,
+    kicking_10_o,
+    kicking_11_o,
+    
+    receiving_1_o,
+    receiving_2_o,
+    receiving_3_o,
+    receiving_4_o,
+    receiving_5_o,
+    receiving_6_o,
+    receiving_7_o,
+    receiving_8_o,
+    receiving_9_o,
+    receiving_10_o,
+    #21
+
+    # Angle of motion of players on kicking and receiving teams
+    kicking_1_dir,
+    kicking_2_dir,
+    kicking_3_dir,
+    kicking_4_dir,
+    kicking_5_dir,
+    kicking_6_dir,
+    kicking_7_dir,
+    kicking_8_dir,
+    kicking_9_dir,
+    kicking_10_dir,
+    kicking_11_dir,
+    
+    receiving_1_dir,
+    receiving_2_dir,
+    receiving_3_dir,
+    receiving_4_dir,
+    receiving_5_dir,
+    receiving_6_dir,
+    receiving_7_dir,
+    receiving_8_dir,
+    receiving_9_dir,
+    receiving_10_dir
+    #21
+    
+    
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Final_Attributes_Step_1` 
+
+) 
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121,122,123,124,125,126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167
+ORDER BY gameID, playID, frameID
+;
+
+
+
+
+
+
+
+
+
+
+
+
+#############################################
+# Step 8
+#############################################
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Final_Attributes_Step_3 AS
+
+/*
+Goals:
+- Only have frame between punt caught and end of play
+- Drop kicking x/y and receicing x/y
+- Create an ultimate ID (gameID + _ + playID)
+
+- 12.13.21 Added:
+  - x_gained_dv to properly capture positive or negative X yard gained or lost
+  - Receiving and Kicking Team Names
+*/
+
+SELECT
+    A.*
+    EXCEPT(kicking_1_x, kicking_2_x, kicking_3_x, kicking_4_x, kicking_5_x, kicking_6_x, kicking_7_x,
+           kicking_8_x, kicking_9_x, kicking_10_x, kicking_11_x,
+           receiving_1_x, receiving_2_x, receiving_3_x, receiving_4_x, receiving_5_x, receiving_6_x,
+           receiving_7_x, receiving_8_x, receiving_9_x, receiving_10_x,
+           kicking_1_y, kicking_2_y, kicking_3_y, kicking_4_y, kicking_5_y, kicking_6_y, kicking_7_y,
+           kicking_8_y, kicking_9_y, kicking_10_y, kicking_11_y,
+           receiving_1_y, receiving_2_y, receiving_3_y, receiving_4_y, receiving_5_y, receiving_6_y, 
+           receiving_7_y, receiving_8_y, receiving_9_y, receiving_10_y),
+     B.punt_received_frame,
+     CONCAT(CAST(A.gameID as STRING), '_', CAST(A.playID as STRING)) as ultimate_id,
+     
+     CASE
+      WHEN playDirection = 'right' AND (x_updated-x) > 0 THEN ROUND(-(x_updated-x),2) 
+      WHEN playDirection = 'right' AND (x_updated-x) < 0 THEN ROUND((x_updated-x)*-1,2)
+      
+      WHEN playDirection = 'left' AND (x_updated-x) > 0 THEN ROUND((x_updated-x),2)
+      WHEN playDirection = 'left' AND (x_updated-x) < 0 THEN ROUND((x_updated-x),2)
+      
+      ELSE 0
+    END AS x_gained_dv,
+    
+    CASE WHEN team = 'home' THEN homeTeamAbbr ELSE visitorTeamAbbr END AS receiving_team_name,
+    CASE WHEN team = 'home' THEN visitorTeamAbbr ELSE homeTeamAbbr END AS kicking_team_name
+     
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Final_Attributes_Step_2`  A
+LEFT JOIN
+(
+SELECT  
+    gameID,
+    playID,
+    frameID as punt_received_frame,
+    event as pr_event
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Final_Attributes_Step_2` 
+WHERE event = 'punt_received'
+GROUP BY gameID, playID, frameID, event
+ORDER BY gameID, playID, frameID
+) B
+ON A.gameID = B.gameID AND A.playID = B.playID
+
+LEFT JOIN (SELECT gameID, homeTeamAbbr, visitorTeamAbbr FROM ss-projects-306119.NFL_BigDataBowl_Fall_2021.Games) C
+ON A.gameID = C.gameID
+  
+WHERE frameID >= punt_received_frame 
+#ORDER BY A.gameID, A.playID, frameID 
+;
+
+
+
+
+
+
+
+
+
+
+#############################################
+# Step 9
+#############################################
+
+/*
+This will create a table with 2018 and 2019 data for training
+*/
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Final_Attribtues_Training AS
+
+SELECT  
+    *
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Final_Attributes_Step_3` 
+WHERE gameID <= 2020000000
+      AND ultimate_id NOT IN
+          (SELECT 
+              CONCAT(CAST(gameID as STRING), '_', CAST(playID as STRING)) as ultimate_id
+            FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Plays` 
+                WHERE specialTeamsPlayType = 'Punt'
+                      AND specialTeamsResult = 'Return'
+                      AND playDescription LIKE '%PENALTY%'
+            )
+ORDER BY gameID, playID, frameID
+;
+
+
+
+
+/*
+This will create a table for 2020 that will be used in production
+*/
+
+CREATE OR REPLACE TABLE ss-projects-306119.NFL_BigDataBowl_Fall_2021.Final_Attribtues_Production AS
+
+SELECT  
+    *
+FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Final_Attributes_Step_3` 
+WHERE gameID >= 2020000000
+      AND ultimate_id NOT IN
+          (SELECT 
+              CONCAT(CAST(gameID as STRING), '_', CAST(playID as STRING)) as ultimate_id
+            FROM `ss-projects-306119.NFL_BigDataBowl_Fall_2021.Plays` 
+                WHERE specialTeamsPlayType = 'Punt'
+                      AND specialTeamsResult = 'Return'
+                      AND playDescription LIKE '%PENALTY%'
+            )
+ORDER BY gameID, playID, frameID
+;
+
+
+
+
+
+
+
+
+
